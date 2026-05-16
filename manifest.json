@@ -2,7 +2,7 @@
   "name": "The Courier — SafeKeepVault",
   "short_name": "SKV Courier",
   "description": "Transfer files and text between SafeKeepVault and your online devices using QR codes — no cables, no network.",
-  "start_url": "./courier-tool.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

@@ -10,7 +10,7 @@ const CACHE_NAME = 'skv-courier-v1';
 
 /** Core app shell — these files are pre-cached on install. */
 const APP_SHELL = [
-  './courier-tool.html',
+  './index.html',
   './style.css',
   './newfavicon.png',
   './manifest.json',
