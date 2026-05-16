@@ -6,7 +6,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'skv-courier-v1';
+const CACHE_NAME = 'skv-courier-v2';
 
 /** Core app shell — these files are pre-cached on install. */
 const APP_SHELL = [
@@ -83,11 +83,17 @@ self.addEventListener('fetch', event => {
         })
         .catch(() => {
           // ── Offline fallback ─────────────────────────────────────────────
-          // If it's a page navigation, serve the cached app shell.
           if (event.request.mode === 'navigate') {
-            return caches.match('./courier-tool.html');
+            // Page navigation: serve the cached app shell.
+            return caches.match('./index.html');
           }
-          // For sub-resources (images, scripts), fail silently.
+          // Sub-resources (scripts, images, etc.) — return an empty 408
+          // so the browser gets a proper Response object instead of undefined,
+          // which was causing the "Failed to convert value to 'Response'" TypeError.
+          return new Response('', {
+            status: 408,
+            statusText: 'Offline — resource not cached',
+          });
         });
     })
   );

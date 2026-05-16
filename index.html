@@ -28,6 +28,23 @@
     <link rel="stylesheet" href="style.css">
     <style>
         /* ============================================================
+           DARK THEME OVERRIDES
+           style.css ships the main site's light palette (#FAFAFA base).
+           The Courier PWA runs as a standalone dark-theme app, so we
+           re-declare every colour token here to override the sheet.
+           ============================================================ */
+        :root {
+            --bg:           #0f0f0f;
+            --surface:      #1a1a1a;
+            --text:         #f0f0f0;
+            --text-muted:   #a8a8a8;
+            --text-dim:     #6a6a6a;
+            --border:       #2a2a2a;
+            --border-mid:   #383838;
+            --code-bg:      #161616;
+        }
+
+        /* ============================================================
            COURIER TOOL — standalone app page
            ============================================================ */
 
