@@ -1284,9 +1284,12 @@
     link.click();
   });
 
-  // Show badge toggle only in text mode
+  // Show badge toggle and save button only in text/static mode
   var badgeToggleRow = document.getElementById('badge-toggle-row');
   var skBadgeCheckbox = document.getElementById('chk-sk-badge');
+  var btnSaveQr = document.getElementById('btn-save-qr');
+  // File mode is checked by default — ensure both elements start hidden
+  btnSaveQr.hidden = true;
 
   // Regenerate QR when badge toggle changes
   skBadgeCheckbox.addEventListener('change', function () {
@@ -1362,12 +1365,17 @@
         startTransmitBtn.hidden = false;
         startTransmitBtn.textContent = 'Start transmission';
         startTransmitBtn.disabled = !originalFile;
+        // Hide static-only controls when in animated file mode
+        btnSaveQr.hidden = true;
+        badgeToggleRow.hidden = true;
       } else {
         fileSection.hidden = true;
         textSection.hidden = false;
         transmitProgressContainer.hidden = true;
         startTransmitBtn.hidden = true;
         stopTransmitBtn.hidden = true;
+        // Restore static-only controls when in text/static mode
+        btnSaveQr.hidden = false;
         generateStaticQR();
       }
     });
