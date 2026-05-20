@@ -965,12 +965,14 @@
                         <div id="fileInfo" hidden></div>
 
                         <div class="settings-row">
-                            <label>Density (bytes)
-                                <input type="number" id="chunkSize" value="250" min="50" max="800">
-                            </label>
-                            <label>Speed (FPS)
-                                <input type="number" id="fps" value="4" min="1" max="10">
-                            </label>
+                            <div>
+                                <label for="xfr-chunk-size">Density: <span id="density-readout">500 bytes</span></label>
+                                <input type="range" id="xfr-chunk-size" min="50" max="800" step="50" value="500" oninput="xfr_updateDensityReadout()" onchange="xfr_updateDensityReadout()">
+                            </div>
+                            <div>
+                                <label for="xfr-fps">Speed: <span id="speed-readout">7 FPS</span></label>
+                                <input type="range" id="xfr-fps" min="1" max="10" step="1" value="7" oninput="xfr_updateSpeedReadout()" onchange="xfr_updateSpeedReadout()">
+                            </div>
                         </div>
                     </div>
 
@@ -1388,8 +1390,8 @@
   });
 
   startTransmitBtn.addEventListener('click', async function () {
-    var chunkSize = parseInt(document.getElementById('chunkSize').value, 10);
-    var fps = parseInt(document.getElementById('fps').value, 10);
+    var chunkSize = parseInt(document.getElementById('xfr-chunk-size').value, 10);
+    var fps = parseInt(document.getElementById('xfr-fps').value, 10);
     startTransmitBtn.hidden = true;
     stopTransmitBtn.hidden = false;
     qrDisplayContainer.hidden = false;
@@ -1400,6 +1402,16 @@
     currentLoop = 0;
     startContinuousLoop(fps);
   });
+
+  function xfr_updateDensityReadout() {
+    var val = document.getElementById('xfr-chunk-size').value;
+    document.getElementById('density-readout').textContent = val + ' bytes';
+  }
+
+  function xfr_updateSpeedReadout() {
+    var val = document.getElementById('xfr-fps').value;
+    document.getElementById('speed-readout').textContent = val + ' FPS';
+  }
 
   function stopTransmission() {
     isTransferring = false;
