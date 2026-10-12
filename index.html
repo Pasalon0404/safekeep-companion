@@ -194,6 +194,9 @@
             cursor: pointer;
         }
 
+        .courier-app .mode-option[hidden] { display: none; }
+        #relayModeOption { grid-column: 1 / -1; }
+
         /* Keep the radio focusable and announced, but draw the card instead */
         .mode-option input {
             position: absolute;
@@ -502,7 +505,11 @@
         #stopReceiveBtn,
         #copyStaticBtn,
         #resetReceiveBtn,
-        #pasteClipboardBtn {
+        #pasteClipboardBtn,
+        #startRelayBtn,
+        #stopRelayBtn,
+        #relayGoBtn,
+        #relayScanAgainBtn {
             display: inline-block;
             padding: 0.65rem 1.4rem;
             border-radius: var(--radius-md);
@@ -520,14 +527,18 @@
         /* Primary — Bitcoin Orange */
         #startTransmitBtn,
         #startReceiveBtn,
-        #copyStaticBtn {
+        #copyStaticBtn,
+        #startRelayBtn,
+        #relayGoBtn {
             background: var(--accent);
             color: #ffffff;
         }
 
         #startTransmitBtn:hover,
         #startReceiveBtn:hover,
-        #copyStaticBtn:hover {
+        #copyStaticBtn:hover,
+        #startRelayBtn:hover,
+        #relayGoBtn:hover {
             background: var(--accent-hover);
         }
 
@@ -541,7 +552,9 @@
         #stopTransmitBtn,
         #stopReceiveBtn,
         #resetReceiveBtn,
-        #pasteClipboardBtn {
+        #pasteClipboardBtn,
+        #stopRelayBtn,
+        #relayScanAgainBtn {
             background: transparent;
             color: var(--text-muted);
             border: 1px solid var(--border-mid);
@@ -550,7 +563,9 @@
         #stopTransmitBtn:hover,
         #stopReceiveBtn:hover,
         #resetReceiveBtn:hover,
-        #pasteClipboardBtn:hover {
+        #pasteClipboardBtn:hover,
+        #stopRelayBtn:hover,
+        #relayScanAgainBtn:hover {
             border-color: var(--text-muted);
             color: var(--text);
         }
@@ -570,6 +585,8 @@
         }
         .relay-note[hidden] { display: none; }
         .relay-note strong { color: var(--accent); }
+        #animRelayText { display: block; }
+        #animRelayText strong { display: block; margin-bottom: 0.2rem; }
         #relayClearBtn,
         .relay-note button {
             background: none;
@@ -1180,6 +1197,16 @@
                                 </span>
                             </span>
                         </label>
+                        <label class="mode-option" id="relayModeOption" hidden>
+                            <input type="radio" name="transmitMode" value="relay">
+                            <span class="mode-option-body">
+                                <svg class="mode-option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                                <span class="mode-option-text">
+                                    <span class="mode-option-title">Relay animation</span>
+                                    <span class="mode-option-sub">Plays back what you scanned</span>
+                                </span>
+                            </span>
+                        </label>
                     </fieldset>
 
                     <!-- File mode -->
@@ -1195,6 +1222,7 @@
                                 <span class="file-drop-sub" id="fileDropSub">Any file type &middot; it never leaves this device</span>
                             </span>
                         </div>
+                        <p class="relay-note" id="fileRelayNote" role="status" hidden><strong>Ready to relay the file you just received.</strong></p>
 
                         <div class="settings-row">
                             <div class="slider-field">
@@ -1231,6 +1259,23 @@
                         </p>
                         <button type="button" id="pasteClipboardBtn" hidden>Paste from clipboard</button>
                         <p class="paste-status" id="pasteStatus" role="status" hidden></p>
+                    </div>
+
+                    <!-- Relay mode: plays back an animated QR received on the Receive tab -->
+                    <div id="relay-mode-section" hidden>
+                        <p class="relay-note" id="relayInfo" role="status"></p>
+                        <div class="settings-row">
+                            <div class="slider-field">
+                                <div class="slider-head">
+                                    <label for="relay-fps">Speed</label>
+                                    <span class="slider-value" id="relay-speed-readout">5 FPS</span>
+                                </div>
+                                <input type="range" class="slider" id="relay-fps" min="1" max="10" step="1" value="5">
+                                <div class="slider-scale" aria-hidden="true"><span>More reliable</span><span>Faster</span></div>
+                            </div>
+                        </div>
+                        <button type="button" id="startRelayBtn">Start relay</button>
+                        <button type="button" id="stopRelayBtn" hidden>Stop relay</button>
                     </div>
 
                     <!-- Controls -->
@@ -1280,6 +1325,14 @@
                         </div>
                         <div class="progress">
                             <div id="receiveProgressBar" class="progress-bar"></div>
+                        </div>
+                    </div>
+
+                    <div id="animRelayReady" hidden>
+                        <p class="relay-note" id="animRelayText" role="status"></p>
+                        <div class="modal-actions" style="margin-top:0.5rem;">
+                            <button type="button" id="relayGoBtn">Relay it now</button>
+                            <button type="button" id="relayScanAgainBtn">Scan again</button>
                         </div>
                     </div>
 
@@ -1336,6 +1389,7 @@
     -->
     <script src="vendor/qrcode.min.js"></script>
     <script src="vendor/html5-qrcode.min.js"></script>
+    <script src="vendor/bc-ur.min.js"></script>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          PWA — Service Worker Registration + Install UX
@@ -1481,7 +1535,7 @@
       var target = document.getElementById(tab.getAttribute('data-target'));
       target.classList.add('active');
       target.hidden = false;
-      if (target.id === 'tab-transmit') applyReceivedText();
+      if (target.id === 'tab-transmit') { applyReceivedText(); applyReceivedAnimation(); }
     });
   });
 
@@ -1604,8 +1658,19 @@
   modeRadios.forEach(function (radio) {
     radio.addEventListener('change', function (e) {
       stopTransmission();
+      stopRelay();
       qrDisplayContainer.hidden = true;
-      if (e.target.value === 'file') {
+      relaySection.hidden = e.target.value !== 'relay';
+      if (e.target.value === 'relay') {
+        fileSection.hidden = true;
+        textSection.hidden = true;
+        transmitProgressContainer.hidden = true;
+        startTransmitBtn.hidden = true;
+        stopTransmitBtn.hidden = true;
+        btnSaveQr.hidden = true;
+        badgeToggleRow.hidden = true;
+        document.getElementById('qrInfo').textContent = '';
+      } else if (e.target.value === 'file') {
         fileSection.hidden = false;
         textSection.hidden = true;
         transmitProgressContainer.hidden = false;
@@ -1660,6 +1725,121 @@
     textInput.focus();
   });
 
+  // ---- Relay an animated QR received on the Receive tab ----
+  // UR (Sparrow, Keystone, …) is decoded to the whole message, then played
+  // back with a fresh fountain encoder using the same part size, so the
+  // receiver can start at any frame. BBQr (Coldcard, Sparrow) parts are
+  // replayed exactly as scanned. Kept in memory only, until the next scan.
+  var relayData = null;       // { kind: 'ur', ur, fragLen, parts, type } or { kind: 'bbqr', frames }
+  var relayFresh = false;     // open Relay mode and start it on the next visit to Transmit
+  var pendingFileRelay = null;
+  var isRelaying = false;
+  var relayTimer = null;
+  var relaySection = document.getElementById('relay-mode-section');
+  var relayModeOption = document.getElementById('relayModeOption');
+  var startRelayBtn = document.getElementById('startRelayBtn');
+  var stopRelayBtn = document.getElementById('stopRelayBtn');
+  var relayFpsInput = document.getElementById('relay-fps');
+
+  function relayDescription() {
+    if (!relayData) return '';
+    if (relayData.kind === 'ur') {
+      return 'Playing back the animated QR you scanned (' + relayData.type + ', ' + relayData.parts +
+        ' parts). Hold it up to the camera until the other device has it.';
+    }
+    return 'Playing back the BBQr animation you scanned (' + relayData.frames.length +
+      ' parts). Hold it up to the camera until the other device has it.';
+  }
+
+  function applyReceivedAnimation() {
+    if (pendingFileRelay) {
+      var f = pendingFileRelay;
+      pendingFileRelay = null;
+      originalFile = new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' });
+      document.getElementById('fileInput').value = '';
+      document.getElementById('fileDropTitle').textContent = f.name;
+      document.getElementById('fileDropSub').textContent = (f.blob.size / 1024).toFixed(2) + ' KB \u00b7 click or drop to change';
+      document.getElementById('fileDrop').classList.add('has-file');
+      var fileRadio = document.querySelector('input[name="transmitMode"][value="file"]');
+      if (!fileRadio.checked) {
+        fileRadio.checked = true;
+        fileRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      startTransmitBtn.disabled = false;
+      document.getElementById('fileRelayNote').hidden = false;
+      return;
+    }
+    if (!relayFresh || !relayData) return;
+    relayFresh = false;
+    var relayRadio = document.querySelector('input[name="transmitMode"][value="relay"]');
+    if (!relayRadio.checked) {
+      relayRadio.checked = true;
+      relayRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    startRelay();
+    qrDisplayContainer.scrollIntoView({ block: 'center' });
+  }
+
+  function setRelayData(data) {
+    relayData = data;
+    relayFresh = true;
+    pendingRelayText = null;
+    pendingFileRelay = null;
+    relayModeOption.hidden = false;
+    document.getElementById('relayInfo').textContent = relayDescription();
+  }
+
+  function startRelay() {
+    if (!relayData) return;
+    stopRelay();
+    isRelaying = true;
+    startRelayBtn.hidden = true;
+    stopRelayBtn.hidden = false;
+    qrDisplayContainer.hidden = false;
+    document.getElementById('relayInfo').textContent = relayDescription();
+    var encoder = relayData.kind === 'ur'
+      ? new BCUR.UREncoder(relayData.ur, relayData.fragLen, 0, Math.min(10, relayData.fragLen))
+      : null;
+    var frame = 0;
+    function next() {
+      if (!isRelaying) return;
+      var text, info;
+      if (encoder) {
+        // Upper case lets the QR use its compact alphanumeric mode, as Sparrow does
+        text = encoder.nextPart().toUpperCase();
+        info = 'Frame ' + (frame + 1) + ' \u00b7 ' + relayData.parts + ' parts, repeating';
+      } else {
+        var i = frame % relayData.frames.length;
+        text = relayData.frames[i];
+        info = 'Part ' + (i + 1) + ' / ' + relayData.frames.length;
+      }
+      frame++;
+      QRCode.toCanvas(document.getElementById('qrCanvas'), text, {
+        width: 525,
+        margin: 2,
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#ffffff' }
+      }, function (error) { if (error) console.error(error); });
+      document.getElementById('qrInfo').textContent = info;
+      relayTimer = setTimeout(next, 1000 / parseInt(relayFpsInput.value, 10));
+    }
+    next();
+  }
+
+  function stopRelay() {
+    isRelaying = false;
+    clearTimeout(relayTimer);
+    startRelayBtn.hidden = false;
+    stopRelayBtn.hidden = true;
+  }
+
+  startRelayBtn.addEventListener('click', startRelay);
+  stopRelayBtn.addEventListener('click', stopRelay);
+  relayFpsInput.addEventListener('input', function () {
+    document.getElementById('relay-speed-readout').textContent = relayFpsInput.value + ' FPS';
+    xfr_updateSliderFill(relayFpsInput);
+  });
+
   // ---- Paste from clipboard (Text mode) ----
   // Only on browsers that can read the clipboard; the phone may ask first.
   var pasteBtn = document.getElementById('pasteClipboardBtn');
@@ -1697,6 +1877,7 @@
     if (!file) return;
     originalFile = file;
     startTransmitBtn.disabled = false;
+    document.getElementById('fileRelayNote').hidden = true;
     // Show the chosen file in the drop zone itself
     document.getElementById('fileDropTitle').textContent = file.name;
     document.getElementById('fileDropSub').textContent = (file.size / 1024).toFixed(2) + ' KB \u00b7 click or drop to change';
@@ -1750,9 +1931,11 @@
   document.getElementById('xfr-fps').addEventListener('input', xfr_updateSpeedReadout);
   xfr_updateDensityReadout();
   xfr_updateSpeedReadout();
+  xfr_updateSliderFill(relayFpsInput);
 
   function stopTransmission() {
     isTransferring = false;
+    stopRelay();
     var mode = document.querySelector('input[name="transmitMode"]:checked');
     if (mode && mode.value === 'file') {
       startTransmitBtn.hidden = false;
@@ -1831,6 +2014,10 @@
   var receiveOriginalExtension = '';
   var receiveOriginalMimeType = '';
   var completedFileBlob = null;
+  var urDecoder = null;       // collects animated UR parts (Sparrow etc.)
+  var bbqrFrames = null;      // collects BBQr parts by index
+  var bbqrKey = '';
+  var animRelayReady = document.getElementById('animRelayReady');
 
   var staticResultContainer = document.getElementById('staticResultContainer');
   var animatedReceiveUI = document.getElementById('animatedReceiveUI');
@@ -1841,9 +2028,13 @@
     cameraBox.hidden = false;
     startReceiveBtn.hidden = true;
     staticResultContainer.hidden = true;
+    animRelayReady.hidden = true;
     animatedReceiveUI.hidden = false;
     document.getElementById('receivedTextInput').value = '';
     receivedChunks.clear();
+    urDecoder = null;
+    bbqrFrames = null;
+    bbqrKey = '';
     receiveTotalChunks = null;
     document.getElementById('receiveProgressBar').style.width = '0%';
     document.getElementById('receiveChunkCount').textContent = '0 / 0';
@@ -1859,16 +2050,74 @@
 
   function stopScanner() {
     if (!html5QrCode) return;
-    html5QrCode.stop().then(function () {
+    var scanner = html5QrCode;
+    html5QrCode = null;   // frames still arriving while the camera stops are ignored
+    scanner.stop().then(function () {
       cameraBox.hidden = true;
       startReceiveBtn.hidden = false;
-      html5QrCode = null;
     }).catch(function (e) { console.error(e); });
   }
   document.getElementById('stopReceiveBtn').addEventListener('click', stopScanner);
 
+  function showReceiveProgress(label, count, fraction) {
+    document.getElementById('incomingFileName').textContent = label;
+    document.getElementById('receiveChunkCount').textContent = count;
+    document.getElementById('receiveProgressBar').style.width = Math.round(fraction * 100) + '%';
+  }
+
+  function showAnimationReady(message) {
+    stopScanner();
+    animatedReceiveUI.hidden = true;
+    document.getElementById('animRelayText').innerHTML = message;
+    animRelayReady.hidden = false;
+  }
+
+  // Animated UR, e.g. "UR:CRYPTO-PSBT/12-6/LPAS…" from Sparrow
+  function processURPart(qrData) {
+    if (!urDecoder) urDecoder = new BCUR.URDecoder();
+    if (!urDecoder.receivePart(qrData)) return;
+    var type = qrData.slice(3, qrData.indexOf('/')).toLowerCase();
+    var pct = urDecoder.estimatedPercentComplete();
+    showReceiveProgress('Animated QR (' + type + ')', Math.round(pct * 100) + '%', pct);
+    if (!urDecoder.isComplete()) return;
+    if (!urDecoder.isSuccess()) {
+      console.error('UR decode failed:', urDecoder.resultError());
+      urDecoder = null;
+      showReceiveProgress('Read error, starting over\u2026', '0%', 0);
+      return;
+    }
+    var ur = urDecoder.resultUR();
+    var parts = urDecoder.expectedPartCount();
+    var fragLen = Math.max(1, Math.ceil(ur.cbor.length / parts));
+    urDecoder = null;
+    setRelayData({ kind: 'ur', ur: ur, fragLen: fragLen, parts: parts, type: ur.type });
+    showAnimationReady('<strong>Got the whole animated QR</strong>' + escapeHtml(ur.type) + ', ' + parts +
+      ' parts. Tap Relay it now to play it back.');
+  }
+
+  // BBQr, e.g. "B$ZP0503…": header, then 2-digit base-36 total and index
+  function processBBQrPart(qrData) {
+    var total = parseInt(qrData.substr(4, 2), 36);
+    var index = parseInt(qrData.substr(6, 2), 36);
+    if (!(total > 0) || !(index >= 0) || index >= total) return;
+    var key = qrData.substr(0, 6);
+    if (!bbqrFrames || bbqrKey !== key) { bbqrFrames = new Array(total); bbqrKey = key; }
+    bbqrFrames[index] = qrData;
+    var have = bbqrFrames.filter(Boolean).length;
+    showReceiveProgress('Animated QR (BBQr)', have + ' / ' + total, have / total);
+    if (have < total) return;
+    var frames = bbqrFrames.slice();
+    bbqrFrames = null;
+    setRelayData({ kind: 'bbqr', frames: frames });
+    showAnimationReady('<strong>Got the whole BBQr animation</strong>' + total +
+      ' parts. Tap Relay it now to play it back.');
+  }
+
   function processQRData(qrData) {
+    if (!html5QrCode) return;
     try {
+      if (/^ur:[a-z0-9-]+\/\d+-\d+\//i.test(qrData)) { processURPart(qrData); return; }
+      if (/^B\$[A-Z0-9]{2}[0-9A-Z]{4}/.test(qrData) && parseInt(qrData.substr(4, 2), 36) > 1) { processBBQrPart(qrData); return; }
       var parts = qrData.split('~');
       var isAnimatedChunk = parts.length === 6 && /^\d+\/\d+\/\d+$/.test(parts[0]);
       if (isAnimatedChunk) {
@@ -1906,6 +2155,8 @@
         var pwdInput = document.getElementById('receivedTextInput');
         pwdInput.value = qrData;
         pendingRelayText = qrData;   // shown on the Transmit tab next time it opens
+        relayFresh = false;
+        pendingFileRelay = null;
         pwdInput.type = 'password';
         var toggle = staticResultContainer.querySelector('.toggle-pwd-btn');
         if (toggle) toggle.innerHTML = EYE_OPEN_SVG;
@@ -1944,10 +2195,29 @@
     var suggestedName = receiveOriginalExtension
       ? receiveOriginalFilename + '.' + receiveOriginalExtension
       : receiveOriginalFilename;
+    pendingFileRelay = { blob: completedFileBlob, name: suggestedName };
+    relayFresh = false;
+    pendingRelayText = null;
+    showAnimationReady('<strong>File received</strong>' + escapeHtml(suggestedName) +
+      '. Save it, or tap Relay it now to send it on.');
     document.getElementById('modalFileDetails').textContent = suggestedName;
     document.getElementById('filenameInput').value = suggestedName;
     document.getElementById('downloadModal').hidden = false;
   }
+
+  function escapeHtml(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  document.getElementById('relayGoBtn').addEventListener('click', function () {
+    document.querySelector('.tab[data-target="tab-transmit"]').click();
+  });
+  document.getElementById('relayScanAgainBtn').addEventListener('click', function () {
+    animRelayReady.hidden = true;
+    startReceiveBtn.click();
+  });
 
   document.getElementById('btn-close-modal').addEventListener('click', function () {
     document.getElementById('downloadModal').hidden = true;

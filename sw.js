@@ -6,7 +6,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'skv-courier-v4';
+const CACHE_NAME = 'skv-courier-v5';
 
 /** Core app shell — these files are pre-cached on install. */
 const APP_SHELL = [
@@ -16,6 +16,7 @@ const APP_SHELL = [
   './manifest.json',
   './vendor/qrcode.min.js',
   './vendor/html5-qrcode.min.js',
+  './vendor/bc-ur.min.js',
 ];
 
 // ─── INSTALL ─────────────────────────────────────────────────────────────────
