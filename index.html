@@ -501,7 +501,8 @@
         #startReceiveBtn,
         #stopReceiveBtn,
         #copyStaticBtn,
-        #resetReceiveBtn {
+        #resetReceiveBtn,
+        #pasteClipboardBtn {
             display: inline-block;
             padding: 0.65rem 1.4rem;
             border-radius: var(--radius-md);
@@ -539,7 +540,8 @@
         /* Secondary — outline */
         #stopTransmitBtn,
         #stopReceiveBtn,
-        #resetReceiveBtn {
+        #resetReceiveBtn,
+        #pasteClipboardBtn {
             background: transparent;
             color: var(--text-muted);
             border: 1px solid var(--border-mid);
@@ -547,10 +549,44 @@
 
         #stopTransmitBtn:hover,
         #stopReceiveBtn:hover,
-        #resetReceiveBtn:hover {
+        #resetReceiveBtn:hover,
+        #pasteClipboardBtn:hover {
             border-color: var(--text-muted);
             color: var(--text);
         }
+
+        /* Paste button sits right under the text field */
+        #pasteClipboardBtn { margin-top: 0.75rem; }
+
+        /* "Showing the code you just received" note (Receive -> Transmit hand-off) */
+        .relay-note {
+            margin: 0.75rem 0 0;
+            font-size: 0.87rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .relay-note[hidden] { display: none; }
+        .relay-note strong { color: var(--accent); }
+        #relayClearBtn,
+        .relay-note button {
+            background: none;
+            border: none;
+            padding: 0;
+            color: var(--accent);
+            font: inherit;
+            font-weight: 600;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+        .paste-status {
+            margin: 0.5rem 0 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .paste-status[hidden] { display: none; }
 
         /* ---- Progress bar ---- */
         .progress {
@@ -1184,11 +1220,17 @@
                     <div id="text-mode-section" hidden>
                         <label for="textInput">Text or password to transmit</label>
                         <div class="password-wrapper">
-                            <input type="password" id="textInput" placeholder="Paste text or password&hellip;">
+                            <input type="password" id="textInput" placeholder="Type or paste text or password&hellip;">
                             <button type="button" class="toggle-pwd-btn" data-target="textInput" title="Show or hide">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             </button>
                         </div>
+                        <p class="relay-note" id="relayNote" role="status" hidden>
+                            <span><strong>Showing the code you just received.</strong></span>
+                            <button type="button" id="relayClearBtn">Clear</button>
+                        </p>
+                        <button type="button" id="pasteClipboardBtn" hidden>Paste from clipboard</button>
+                        <p class="paste-status" id="pasteStatus" role="status" hidden></p>
                     </div>
 
                     <!-- Controls -->
@@ -1439,6 +1481,7 @@
       var target = document.getElementById(tab.getAttribute('data-target'));
       target.classList.add('active');
       target.hidden = false;
+      if (target.id === 'tab-transmit') applyReceivedText();
     });
   });
 
@@ -1585,7 +1628,65 @@
     });
   });
 
+  // ---- Receive -> Transmit hand-off ----
+  // The text of the last single QR code received is kept in memory only
+  // (never put on the clipboard). The next time the Transmit tab opens, it
+  // switches to Text mode and shows that text as a QR code, so a phone can
+  // relay a code from one computer to another. Used once per scan, so text
+  // typed afterwards isn't overwritten by switching tabs.
+  var pendingRelayText = null;
+  var relayNote = document.getElementById('relayNote');
+
+  function applyReceivedText() {
+    if (pendingRelayText === null) return;
+    var text = pendingRelayText;
+    pendingRelayText = null;
+    textInput.value = text;
+    var textRadio = document.querySelector('input[name="transmitMode"][value="text"]');
+    if (!textRadio.checked) {
+      textRadio.checked = true;
+      textRadio.dispatchEvent(new Event('change', { bubbles: true }));  // shows Text mode and draws the QR
+    } else {
+      generateStaticQR();
+    }
+    relayNote.hidden = false;
+    pasteStatus.hidden = true;
+  }
+
+  document.getElementById('relayClearBtn').addEventListener('click', function () {
+    textInput.value = '';
+    relayNote.hidden = true;
+    generateStaticQR();   // hides the QR when the field is empty
+    textInput.focus();
+  });
+
+  // ---- Paste from clipboard (Text mode) ----
+  // Only on browsers that can read the clipboard; the phone may ask first.
+  var pasteBtn = document.getElementById('pasteClipboardBtn');
+  var pasteStatus = document.getElementById('pasteStatus');
+  if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') pasteBtn.hidden = false;
+
+  function showPasteStatus(msg) {
+    pasteStatus.textContent = msg;
+    pasteStatus.hidden = false;
+  }
+
+  pasteBtn.addEventListener('click', async function () {
+    pasteStatus.hidden = true;
+    try {
+      var text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) { showPasteStatus('The clipboard is empty.'); return; }
+      textInput.value = text;
+      relayNote.hidden = true;
+      generateStaticQR();
+    } catch (err) {
+      showPasteStatus("Couldn't read the clipboard. Tap the box above and paste instead.");
+    }
+  });
+
   textInput.addEventListener('input', function () {
+    relayNote.hidden = true;   // edited by hand: no longer "the code you just received"
+    pasteStatus.hidden = true;
     if (document.querySelector('input[name="transmitMode"]:checked').value === 'text') {
       generateStaticQR();
     }
@@ -1804,6 +1905,7 @@
         staticResultContainer.hidden = false;
         var pwdInput = document.getElementById('receivedTextInput');
         pwdInput.value = qrData;
+        pendingRelayText = qrData;   // shown on the Transmit tab next time it opens
         pwdInput.type = 'password';
         var toggle = staticResultContainer.querySelector('.toggle-pwd-btn');
         if (toggle) toggle.innerHTML = EYE_OPEN_SVG;
