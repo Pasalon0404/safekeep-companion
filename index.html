@@ -800,6 +800,7 @@
 
         #btn-download:hover { background: var(--accent-hover); }
 
+        #btn-relay-file,
         #btn-close-modal {
             background: transparent;
             color: var(--text-muted);
@@ -813,6 +814,8 @@
             transition: border-color var(--transition), color var(--transition);
         }
 
+        #btn-relay-file { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        #btn-relay-file:hover,
         #btn-close-modal:hover {
             border-color: var(--text-muted);
             color: var(--text);
@@ -1222,7 +1225,7 @@
                                 <span class="file-drop-sub" id="fileDropSub">Any file type &middot; it never leaves this device</span>
                             </span>
                         </div>
-                        <p class="relay-note" id="fileRelayNote" role="status" hidden><strong>Ready to relay the file you just received.</strong></p>
+                        <p class="relay-note" id="fileRelayNote" role="status" hidden><strong>Relaying the file you just received.</strong></p>
 
                         <div class="settings-row">
                             <div class="slider-field">
@@ -1367,7 +1370,7 @@
     <div id="downloadModal" class="modal-overlay" hidden>
         <div class="modal-content">
             <h2>Transfer complete</h2>
-            <p>Your file has been fully reassembled. Review the name and save it locally.</p>
+            <p>Your file has been fully reassembled. Save it to this device, or relay it straight on to another screen.</p>
             <div class="modal-file-row">
                 <strong>Original file:</strong>
                 <span id="modalFileDetails"></span>
@@ -1376,7 +1379,8 @@
             <input type="text" id="filenameInput" placeholder="filename.extension">
             <div class="modal-actions">
                 <button type="button" id="btn-download">Save file</button>
-                <button type="button" id="btn-close-modal">Cancel</button>
+                <button type="button" id="btn-relay-file">Relay it</button>
+                <button type="button" id="btn-close-modal">Close</button>
             </div>
         </div>
     </div>
@@ -1767,6 +1771,8 @@
       }
       startTransmitBtn.disabled = false;
       document.getElementById('fileRelayNote').hidden = false;
+      startTransmitBtn.click();   // same as relaying an animation: starts playing straight away
+      setTimeout(function () { qrDisplayContainer.scrollIntoView({ block: 'center' }); }, 300);   // once the first code is drawn
       return;
     }
     if (!relayFresh || !relayData) return;
@@ -2199,7 +2205,7 @@
     relayFresh = false;
     pendingRelayText = null;
     showAnimationReady('<strong>File received</strong>' + escapeHtml(suggestedName) +
-      '. Save it, or tap Relay it now to send it on.');
+      '. Tap Relay it now to send it on to another screen.');
     document.getElementById('modalFileDetails').textContent = suggestedName;
     document.getElementById('filenameInput').value = suggestedName;
     document.getElementById('downloadModal').hidden = false;
@@ -2217,6 +2223,15 @@
   document.getElementById('relayScanAgainBtn').addEventListener('click', function () {
     animRelayReady.hidden = true;
     startReceiveBtn.click();
+  });
+
+  // Relay the received file without saving it: a phone can carry a file from
+  // the vault to a computer whose wallet only takes files (e.g. Trezor Suite)
+  document.getElementById('btn-relay-file').addEventListener('click', function () {
+    var name = document.getElementById('filenameInput').value.trim();
+    if (pendingFileRelay && name) pendingFileRelay.name = name;
+    document.getElementById('downloadModal').hidden = true;
+    document.querySelector('.tab[data-target="tab-transmit"]').click();
   });
 
   document.getElementById('btn-close-modal').addEventListener('click', function () {
