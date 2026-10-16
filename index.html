@@ -650,6 +650,44 @@
             letter-spacing: 0.02em;
         }
 
+        /* ---- Relay mode: contents under the QR ---- */
+        #relayContents { width: 100%; }
+        #relayContents[hidden] { display: none; }
+        .relay-contents-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.4rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        #relayCopyBtn {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.9rem;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #relayContentsText {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.6rem 0.75rem;
+            border: 1px solid var(--border-mid);
+            border-radius: var(--radius-sm);
+            background: var(--surface);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            word-break: break-all;
+            resize: vertical;
+        }
+
         /* ---- Camera box ---- */
         #cameraBox {
             margin-top: 1.25rem;
@@ -1310,6 +1348,14 @@
                     <div id="qrDisplayContainer" class="qr-display" hidden>
                         <canvas id="qrCanvas"></canvas>
                         <div id="qrInfo"></div>
+                        <!-- Relay mode: what the animation holds, readable and copyable -->
+                        <div id="relayContents" hidden>
+                            <div class="relay-contents-head">
+                                <span id="relayContentsLabel">Contents</span>
+                                <button type="button" id="relayCopyBtn">Copy</button>
+                            </div>
+                            <textarea id="relayContentsText" rows="5" readonly spellcheck="false" aria-labelledby="relayContentsLabel"></textarea>
+                        </div>
                         <button type="button" id="btn-save-qr" style="margin-top:1rem; width:100%; padding:0.65rem 1.4rem; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-md); font-family:var(--font-sans); font-size:0.88rem; font-weight:600; cursor:pointer;">
                             Save QR Code as Image
                         </button>
@@ -1672,6 +1718,7 @@
       stopTransmission();
       stopRelay();
       qrDisplayContainer.hidden = true;
+      relayContentsBox.hidden = true;
       relaySection.hidden = e.target.value !== 'relay';
       if (e.target.value === 'relay') {
         fileSection.hidden = true;
@@ -1817,6 +1864,7 @@
     stopRelayBtn.hidden = false;
     qrDisplayContainer.hidden = false;
     document.getElementById('relayInfo').textContent = relayDescription();
+    showRelayContents();
     var encoder = relayData.kind === 'ur'
       ? new BCUR.UREncoder(relayData.ur, relayData.fragLen, 0, Math.min(10, relayData.fragLen))
       : null;
@@ -1845,6 +1893,93 @@
     }
     next();
   }
+
+  // ---- What the relayed animation holds ----
+  // Decoded on this device only, for reading and copying: text as text, a PSBT
+  // as base64 (what wallets accept when pasted), anything else as UR text.
+  var relayContentsBox = document.getElementById('relayContents');
+  var relayContentsText = document.getElementById('relayContentsText');
+  var relayContentsLabel = document.getElementById('relayContentsLabel');
+
+  function bytesToHex(b) {
+    return Array.prototype.map.call(b, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+  }
+  function bytesToBase64(b) {
+    var bin = '';
+    for (var i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
+    return btoa(bin);
+  }
+  function bytesToText(b) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch (e) { return null; }
+  }
+  function base32ToBytes(str) {
+    var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', bits = 0, value = 0, out = [];
+    for (var i = 0; i < str.length; i++) {
+      var v = alphabet.indexOf(str[i]);
+      if (v < 0) throw new Error('bad base32');
+      value = (value << 5) | v; bits += 5;
+      if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+    }
+    return new Uint8Array(out);
+  }
+  async function inflateRaw(bytes) {
+    var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function decodeRelayContents(data) {
+    if (data.kind === 'ur') {
+      var type = data.ur.type;
+      if (type === 'bytes') {
+        var raw = new Uint8Array(data.ur.decodeCBOR());
+        var text = bytesToText(raw);
+        return text !== null ? { label: 'Text', text: text } : { label: 'Data (hex)', text: bytesToHex(raw) };
+      }
+      if (type === 'crypto-psbt' || type === 'psbt') {
+        return { label: 'PSBT (base64)', text: bytesToBase64(new Uint8Array(data.ur.decodeCBOR())) };
+      }
+      return { label: 'UR (' + type + ')', text: BCUR.UREncoder.encodeSinglePart(data.ur) };
+    }
+    // BBQr: B$ + encoding + file type + total + index, then the data
+    var first = data.frames[0], enc = first[2], ftype = first[3];
+    var body = data.frames.map(function (f) { return f.slice(8); }).join('');
+    var bytes = enc === 'H' ? Uint8Array.from(body.match(/../g) || [], function (h) { return parseInt(h, 16); })
+      : enc === 'Z' ? await inflateRaw(base32ToBytes(body))
+      : base32ToBytes(body);
+    if (ftype === 'P') return { label: 'PSBT (base64)', text: bytesToBase64(bytes) };
+    if (ftype === 'T') return { label: 'Transaction (hex)', text: bytesToHex(bytes) };
+    if (ftype === 'U' || ftype === 'J') {
+      var t = bytesToText(bytes);
+      if (t !== null) return { label: ftype === 'J' ? 'JSON' : 'Text', text: t };
+    }
+    return { label: 'Data (hex)', text: bytesToHex(bytes) };
+  }
+
+  async function showRelayContents() {
+    var data = relayData;
+    relayContentsBox.hidden = true;
+    try {
+      var c = await decodeRelayContents(data);
+      if (data !== relayData || !isRelaying) return;
+      relayContentsLabel.textContent = c.label;
+      relayContentsText.value = c.text;
+      relayContentsBox.hidden = false;
+    } catch (e) {
+      console.error('Could not decode the relay contents:', e);
+    }
+  }
+
+  document.getElementById('relayCopyBtn').addEventListener('click', async function (e) {
+    var btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(relayContentsText.value);
+    } catch (err) {
+      relayContentsText.select();   // older browsers
+      document.execCommand('copy');
+    }
+    btn.textContent = 'Copied';
+    setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+  });
 
   function stopRelay() {
     isRelaying = false;
