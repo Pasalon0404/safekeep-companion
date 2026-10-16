@@ -506,6 +506,7 @@
         #copyStaticBtn,
         #resetReceiveBtn,
         #pasteClipboardBtn,
+        #animateTextBtn,
         #startRelayBtn,
         #stopRelayBtn,
         #relayGoBtn,
@@ -553,6 +554,7 @@
         #stopReceiveBtn,
         #resetReceiveBtn,
         #pasteClipboardBtn,
+        #animateTextBtn,
         #stopRelayBtn,
         #relayScanAgainBtn {
             background: transparent;
@@ -564,6 +566,7 @@
         #stopReceiveBtn:hover,
         #resetReceiveBtn:hover,
         #pasteClipboardBtn:hover,
+        #animateTextBtn:hover,
         #stopRelayBtn:hover,
         #relayScanAgainBtn:hover {
             border-color: var(--text-muted);
@@ -572,6 +575,7 @@
 
         /* Paste button sits right under the text field */
         #pasteClipboardBtn { margin-top: 0.75rem; }
+        #animateTextBtn { margin-top: 0.75rem; }
 
         /* "Showing the code you just received" note (Receive -> Transmit hand-off) */
         .relay-note {
@@ -1262,6 +1266,10 @@
                         </p>
                         <button type="button" id="pasteClipboardBtn" hidden>Paste from clipboard</button>
                         <p class="paste-status" id="pasteStatus" role="status" hidden></p>
+                        <div id="animateTextRow" hidden>
+                            <button type="button" id="animateTextBtn">Show as animated QR</button>
+                            <p class="paste-status">Too dense to scan? This plays the text as an animated QR (UR format), a few characters per frame. SafeKeepVault&rsquo;s scanners read it, for example a long output descriptor.</p>
+                        </div>
                     </div>
 
                     <!-- Relay mode: plays back an animated QR received on the Receive tab -->
@@ -1720,11 +1728,13 @@
     }
     relayNote.hidden = false;
     pasteStatus.hidden = true;
+    updateAnimateTextRow();
   }
 
   document.getElementById('relayClearBtn').addEventListener('click', function () {
     textInput.value = '';
     relayNote.hidden = true;
+    updateAnimateTextRow();
     generateStaticQR();   // hides the QR when the field is empty
     textInput.focus();
   });
@@ -1747,6 +1757,10 @@
 
   function relayDescription() {
     if (!relayData) return '';
+    if (relayData.fromText) {
+      return 'Playing your text as an animated QR (UR, ' + relayData.parts +
+        ' parts). Hold it up to the camera until the other device has it.';
+    }
     if (relayData.kind === 'ur') {
       return 'Playing back the animated QR you scanned (' + relayData.type + ', ' + relayData.parts +
         ' parts). Hold it up to the camera until the other device has it.';
@@ -1846,6 +1860,32 @@
     xfr_updateSliderFill(relayFpsInput);
   });
 
+  // ---- Text as an animated QR ----
+  // A long text (e.g. a multisig output descriptor) can make a static QR too
+  // dense for a laptop camera. This sends it as ur:bytes in small fountain-coded
+  // frames instead, played by the relay player. SafeKeepVault's scanners accept
+  // ur:bytes holding plain text.
+  var TEXT_UR_FRAGMENT = 90;   // bytes per frame: small, easy-to-scan codes
+  var animateTextRow = document.getElementById('animateTextRow');
+
+  function updateAnimateTextRow() {
+    animateTextRow.hidden = !textInput.value.trim();
+  }
+
+  document.getElementById('animateTextBtn').addEventListener('click', function () {
+    var text = textInput.value.trim();
+    if (!text) return;
+    var ur = BCUR.UR.fromBuffer(Buffer.from(new TextEncoder().encode(text)));
+    var parts = Math.max(1, Math.ceil(ur.cbor.length / TEXT_UR_FRAGMENT));
+    setRelayData({ kind: 'ur', ur: ur, fragLen: TEXT_UR_FRAGMENT, parts: parts, type: 'bytes', fromText: true });
+    relayFresh = false;
+    var relayRadio = document.querySelector('input[name="transmitMode"][value="relay"]');
+    relayRadio.checked = true;
+    relayRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    startRelay();
+    setTimeout(function () { qrDisplayContainer.scrollIntoView({ block: 'center' }); }, 300);
+  });
+
   // ---- Paste from clipboard (Text mode) ----
   // Only on browsers that can read the clipboard; the phone may ask first.
   var pasteBtn = document.getElementById('pasteClipboardBtn');
@@ -1865,12 +1905,14 @@
       textInput.value = text;
       relayNote.hidden = true;
       generateStaticQR();
+      updateAnimateTextRow();
     } catch (err) {
       showPasteStatus("Couldn't read the clipboard. Tap the box above and paste instead.");
     }
   });
 
   textInput.addEventListener('input', function () {
+    updateAnimateTextRow();
     relayNote.hidden = true;   // edited by hand: no longer "the code you just received"
     pasteStatus.hidden = true;
     if (document.querySelector('input[name="transmitMode"]:checked').value === 'text') {
