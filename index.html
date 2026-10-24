@@ -608,6 +608,7 @@
             color: var(--text-muted);
         }
         .paste-status[hidden] { display: none; }
+        .file-error { color: #f87171; }
 
         /* ---- Progress bar ---- */
         .progress {
@@ -1268,6 +1269,7 @@
                             </span>
                         </div>
                         <p class="relay-note" id="fileRelayNote" role="status" hidden><strong>Relaying the file you just received.</strong></p>
+                        <p class="paste-status file-error" id="fileReadError" role="alert" hidden></p>
 
                         <div class="settings-row">
                             <div class="slider-field">
@@ -1370,7 +1372,7 @@
 
                     <button type="button" id="startReceiveBtn">Open camera and scan</button>
 
-                    <div id="cameraBox" class="camera-box" hidden>
+                    <div id="cameraBox" class="camera-box" data-scan-view hidden>
                         <div id="reader"></div>
                         <button type="button" id="stopReceiveBtn">Cancel scan</button>
                     </div>
@@ -1448,6 +1450,87 @@
     <script src="vendor/qrcode.min.js"></script>
     <script src="vendor/html5-qrcode.min.js"></script>
     <script src="vendor/bc-ur.min.js"></script>
+    <script>
+    // ---- Bring new QR codes and camera views into view ----
+    // Every QR code is drawn with QRCode.toCanvas and every camera view is
+    // opened with Html5Qrcode#start, so both are wrapped once here and any
+    // tool that uses them gets this for free. Same rules as SafeKeepVault.
+    (function () {
+      'use strict';
+
+      // Scroll el into view unless it is hidden, already fully on screen, the
+      // page is printing, or the user is typing (a QR that redraws as they
+      // type must not move the page).
+      function skui_reveal(el) {
+        if (!el || !el.getClientRects().length) return;
+        if (window.matchMedia && window.matchMedia('print').matches) return;
+        var a = document.activeElement;
+        if (a && (a.tagName === 'TEXTAREA' || a.isContentEditable ||
+                  (a.tagName === 'INPUT' && !/^(button|submit|checkbox|radio|range|file)$/i.test(a.type)))) return;
+        var r = el.getBoundingClientRect(), vh = window.innerHeight;
+        if (r.top >= 0 && r.bottom <= vh) return;
+        el.scrollIntoView({ block: r.height > vh ? 'start' : 'center', behavior: 'smooth' });
+      }
+
+      // Once per appearance: an animated QR redraws many times a second and
+      // the user must be free to scroll away. When the canvas is hidden its
+      // size drops to zero, which clears the mark so the next showing scrolls.
+      var shown = new WeakSet();
+      var hideWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (!e.target.getClientRects().length) { shown.delete(e.target); hideWatch.unobserve(e.target); }
+        });
+      }) : null;
+      function skui_onQrDrawn(canvas) {
+        if (!canvas || typeof canvas.getClientRects !== 'function') return;
+        setTimeout(function () {   // the caller often shows the container just after drawing
+          if (!canvas.getClientRects().length || shown.has(canvas)) return;
+          shown.add(canvas);
+          if (hideWatch) hideWatch.observe(canvas);
+          skui_reveal(canvas);
+        }, 60);
+      }
+      window.skui_reveal = skui_reveal;
+      window.skui_onQrDrawn = skui_onQrDrawn;
+
+      // QRCode.toCanvas, callback or promise style
+      if (window.QRCode && typeof QRCode.toCanvas === 'function') {
+        var lib = window.QRCode, toCanvas = lib.toCanvas;
+        window.QRCode = Object.assign({}, lib, {
+          toCanvas: function () {
+            var args = Array.prototype.slice.call(arguments), cb = args[args.length - 1], target = args[0];
+            if (typeof cb === 'function') {
+              args[args.length - 1] = function (err) { if (!err) skui_onQrDrawn(target); return cb.apply(this, arguments); };
+              return toCanvas.apply(lib, args);
+            }
+            var done = toCanvas.apply(lib, args);
+            if (done && typeof done.then === 'function') done.then(function () { skui_onQrDrawn(target); }, function () {});
+            return done;
+          }
+        });
+      }
+
+      // Html5Qrcode#start: once the video is playing and its size is known,
+      // show the whole scan view (camera plus its Cancel button).
+      if (window.Html5Qrcode && Html5Qrcode.prototype && typeof Html5Qrcode.prototype.start === 'function') {
+        var start = Html5Qrcode.prototype.start;
+        Html5Qrcode.prototype.start = function () {
+          var el = document.getElementById(this.elementId);
+          var started = start.apply(this, arguments);
+          if (started && typeof started.then === 'function') {
+            started.then(function () {
+              if (!el) return;
+              var view = el.closest('[data-scan-view]') || el, video = el.querySelector('video');
+              var go = function () { setTimeout(function () { skui_reveal(view); }, 60); };
+              if (!video || video.readyState >= 1) go();
+              else video.addEventListener('loadedmetadata', go, { once: true });
+            }, function () {});
+          }
+          return started;
+        };
+      }
+    })();
+    </script>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          PWA — Service Worker Registration + Install UX
@@ -1833,7 +1916,6 @@
       startTransmitBtn.disabled = false;
       document.getElementById('fileRelayNote').hidden = false;
       startTransmitBtn.click();   // same as relaying an animation: starts playing straight away
-      setTimeout(function () { qrDisplayContainer.scrollIntoView({ block: 'center' }); }, 300);   // once the first code is drawn
       return;
     }
     if (!relayFresh || !relayData) return;
@@ -1844,7 +1926,6 @@
       relayRadio.dispatchEvent(new Event('change', { bubbles: true }));
     }
     startRelay();
-    qrDisplayContainer.scrollIntoView({ block: 'center' });
   }
 
   function setRelayData(data) {
@@ -2018,7 +2099,6 @@
     relayRadio.checked = true;
     relayRadio.dispatchEvent(new Event('change', { bubbles: true }));
     startRelay();
-    setTimeout(function () { qrDisplayContainer.scrollIntoView({ block: 'center' }); }, 300);
   });
 
   // ---- Paste from clipboard (Text mode) ----
@@ -2059,6 +2139,7 @@
     var file = e.target.files[0];
     if (!file) return;
     originalFile = file;
+    showFileError('');
     startTransmitBtn.disabled = false;
     document.getElementById('fileRelayNote').hidden = true;
     // Show the chosen file in the drop zone itself
@@ -2076,13 +2157,37 @@
     drop.addEventListener('drop', function () { depth = 0; drop.classList.remove('is-dragover'); });
   })();
 
+  var fileReadError = document.getElementById('fileReadError');
+  function showFileError(msg) {
+    fileReadError.textContent = msg;
+    fileReadError.hidden = !msg;
+  }
+
   startTransmitBtn.addEventListener('click', async function () {
     var chunkSize = parseInt(document.getElementById('xfr-chunk-size').value, 10);
     var fps = parseInt(document.getElementById('xfr-fps').value, 10);
+    var name = originalFile ? '\u201c' + originalFile.name + '\u201d' : 'the file';
+    showFileError('');
     startTransmitBtn.hidden = true;
     stopTransmitBtn.hidden = false;
+    // Read the whole file first, so a file that can't be read gives a message
+    // instead of an empty code area.
+    try {
+      fileChunks = await splitFileToChunks(originalFile, chunkSize);
+    } catch (err) {
+      console.error('Could not read the file:', err);
+      fileChunks = null;
+    }
+    if (!fileChunks || !fileChunks.length) {
+      startTransmitBtn.hidden = false;
+      stopTransmitBtn.hidden = true;
+      qrDisplayContainer.hidden = true;
+      showFileError(fileChunks
+        ? name + ' is empty, so there is nothing to send. Choose another file.'
+        : 'Couldn\u2019t read ' + name + '. It may have been moved, renamed or deleted since you chose it. Choose the file again.');
+      return;
+    }
     qrDisplayContainer.hidden = false;
-    fileChunks = await splitFileToChunks(originalFile, chunkSize);
     transmitTotalChunks = fileChunks.length;
     isTransferring = true;
     transmitCurrentChunk = 0;
@@ -2149,8 +2254,10 @@
   }
 
   function splitFileToChunks(file, chunkSize) {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
+      if (!file) { reject(new Error('No file chosen')); return; }
       var reader = new FileReader();
+      reader.onerror = function () { reject(reader.error || new Error('The file could not be read')); };
       reader.onload = function (e) {
         var uint8Array = new Uint8Array(e.target.result);
         var chunks = [];
