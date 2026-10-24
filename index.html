@@ -608,6 +608,7 @@
             color: var(--text-muted);
         }
         .paste-status[hidden] { display: none; }
+        .file-error { color: #f87171; }
 
         /* ---- Progress bar ---- */
         .progress {
@@ -1268,6 +1269,7 @@
                             </span>
                         </div>
                         <p class="relay-note" id="fileRelayNote" role="status" hidden><strong>Relaying the file you just received.</strong></p>
+                        <p class="paste-status file-error" id="fileReadError" role="alert" hidden></p>
 
                         <div class="settings-row">
                             <div class="slider-field">
@@ -2137,6 +2139,7 @@
     var file = e.target.files[0];
     if (!file) return;
     originalFile = file;
+    showFileError('');
     startTransmitBtn.disabled = false;
     document.getElementById('fileRelayNote').hidden = true;
     // Show the chosen file in the drop zone itself
@@ -2154,13 +2157,37 @@
     drop.addEventListener('drop', function () { depth = 0; drop.classList.remove('is-dragover'); });
   })();
 
+  var fileReadError = document.getElementById('fileReadError');
+  function showFileError(msg) {
+    fileReadError.textContent = msg;
+    fileReadError.hidden = !msg;
+  }
+
   startTransmitBtn.addEventListener('click', async function () {
     var chunkSize = parseInt(document.getElementById('xfr-chunk-size').value, 10);
     var fps = parseInt(document.getElementById('xfr-fps').value, 10);
+    var name = originalFile ? '\u201c' + originalFile.name + '\u201d' : 'the file';
+    showFileError('');
     startTransmitBtn.hidden = true;
     stopTransmitBtn.hidden = false;
+    // Read the whole file first, so a file that can't be read gives a message
+    // instead of an empty code area.
+    try {
+      fileChunks = await splitFileToChunks(originalFile, chunkSize);
+    } catch (err) {
+      console.error('Could not read the file:', err);
+      fileChunks = null;
+    }
+    if (!fileChunks || !fileChunks.length) {
+      startTransmitBtn.hidden = false;
+      stopTransmitBtn.hidden = true;
+      qrDisplayContainer.hidden = true;
+      showFileError(fileChunks
+        ? name + ' is empty, so there is nothing to send. Choose another file.'
+        : 'Couldn\u2019t read ' + name + '. It may have been moved, renamed or deleted since you chose it. Choose the file again.');
+      return;
+    }
     qrDisplayContainer.hidden = false;
-    fileChunks = await splitFileToChunks(originalFile, chunkSize);
     transmitTotalChunks = fileChunks.length;
     isTransferring = true;
     transmitCurrentChunk = 0;
@@ -2227,8 +2254,10 @@
   }
 
   function splitFileToChunks(file, chunkSize) {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
+      if (!file) { reject(new Error('No file chosen')); return; }
       var reader = new FileReader();
+      reader.onerror = function () { reject(reader.error || new Error('The file could not be read')); };
       reader.onload = function (e) {
         var uint8Array = new Uint8Array(e.target.result);
         var chunks = [];
