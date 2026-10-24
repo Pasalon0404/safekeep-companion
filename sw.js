@@ -6,7 +6,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'skv-courier-v8';
+const CACHE_NAME = 'skv-courier-v9';
 
 /** Core app shell — these files are pre-cached on install. */
 const APP_SHELL = [
