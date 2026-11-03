@@ -1380,6 +1380,7 @@
                     <div id="animatedReceiveUI" hidden>
                         <div class="status-metrics">
                             <div>Chunks: <span id="receiveChunkCount">0 / 0</span></div>
+                            <div id="receiveStatusNote" aria-live="polite"></div>
                             <div>File: <span id="incomingFileName">awaiting data&hellip;</span></div>
                         </div>
                         <div class="progress">
@@ -2189,6 +2190,7 @@
     }
     qrDisplayContainer.hidden = false;
     transmitTotalChunks = fileChunks.length;
+    transmitChunkSize = chunkSize;
     isTransferring = true;
     transmitCurrentChunk = 0;
     currentLoop = 0;
@@ -2205,6 +2207,28 @@
     var el = document.getElementById('xfr-chunk-size');
     document.getElementById('density-readout').textContent = el.value + ' bytes';
     xfr_updateSliderFill(el);
+    applyDensityLive(parseInt(el.value, 10));
+  }
+
+  // While sending, a new density re-cuts the file and starts again from the
+  // first piece (after a short pause, so dragging doesn't re-cut on every
+  // step). Receivers see the new cut and start over (see processQRData).
+  var transmitChunkSize = null;
+  var densityTimer = null;
+  function applyDensityLive(size) {
+    clearTimeout(densityTimer);
+    if (!isTransferring || !(size >= 50) || size === transmitChunkSize) return;
+    densityTimer = setTimeout(async function () {
+      if (!isTransferring || !originalFile) return;
+      var chunks;
+      try { chunks = await splitFileToChunks(originalFile, size); } catch (e) { return; }
+      if (!isTransferring || !chunks || !chunks.length) return;
+      fileChunks = chunks;
+      transmitTotalChunks = chunks.length;
+      transmitCurrentChunk = 0;
+      currentLoop = 0;
+      transmitChunkSize = size;
+    }, 300);
   }
 
   function xfr_updateSpeedReadout() {
@@ -2234,9 +2258,10 @@
   stopTransmitBtn.addEventListener('click', stopTransmission);
 
   function startContinuousLoop(fps) {
-    var frameDelay = 1000 / fps;
     function runLoop() {
       if (!isTransferring) return;
+      // Speed is read every frame, so the slider applies at once.
+      var frameDelay = 1000 / (parseInt(document.getElementById('xfr-fps').value, 10) || fps);
       if (transmitCurrentChunk < transmitTotalChunks) {
         sendChunk(fileChunks[transmitCurrentChunk], transmitCurrentChunk, transmitTotalChunks);
         transmitCurrentChunk++;
@@ -2300,6 +2325,7 @@
   var html5QrCode = null;
   var receivedChunks = new Map();
   var receiveTotalChunks = null;
+  var receiveKey = null, receiveChunkLen = null, receiveNeedConfirm = false;
   var receiveOriginalFilename = '';
   var receiveOriginalExtension = '';
   var receiveOriginalMimeType = '';
@@ -2322,6 +2348,8 @@
     animatedReceiveUI.hidden = false;
     document.getElementById('receivedTextInput').value = '';
     receivedChunks.clear();
+    receiveKey = null; receiveChunkLen = null; receiveNeedConfirm = false;
+    var statusNote = document.getElementById('receiveStatusNote'); if (statusNote) statusNote.textContent = '';
     urDecoder = null;
     bbqrFrames = null;
     bbqrKey = '';
@@ -2419,7 +2447,31 @@
         var mimeType = parts[3];
         var data = parts[4];
         var checksum = parts[5];
-        if (receiveTotalChunks === null) {
+        if (!(total >= 1) || !(index >= 0) || index >= total) return;
+        var dataBytes = base64ToArrayBufferDecode(data);
+        if (calculateSimpleChecksum(dataBytes) !== checksum) return;
+        var len = dataBytes.byteLength !== undefined ? dataBytes.byteLength : dataBytes.length;
+        // The sender can change density (piece size) mid-transfer. Every
+        // piece but the last is exactly that size, so another piece count,
+        // file name, or a middle piece of another size means a new cut:
+        // start over rather than join two cuts. The last piece's size can't
+        // be checked that way, so it is taken only once a middle piece has set
+        // the size, and the file finishes only when a middle piece of the same
+        // size follows it (the sender is still on this cut). A one-piece file
+        // finishes at once. (SafeKeepVault's receiver does the same.)
+        var isLast = index === total - 1;
+        var key = total + '~' + filename + '~' + extension;
+        var restart = receiveTotalChunks === null || key !== receiveKey ||
+          (!isLast && receiveChunkLen !== null && len !== receiveChunkLen);
+        if (restart) {
+          if (receiveTotalChunks !== null) {
+            var note = document.getElementById('receiveStatusNote');
+            if (note) note.textContent = 'The sender changed its settings, so receiving started over.';
+          }
+          receivedChunks.clear();
+          receiveKey = key;
+          receiveChunkLen = null;
+          receiveNeedConfirm = false;
           receiveTotalChunks = total;
           receiveOriginalFilename = filename;
           receiveOriginalExtension = extension;
@@ -2427,17 +2479,19 @@
           document.getElementById('incomingFileName').textContent =
             filename + (extension ? '.' + extension : '');
         }
-        if (!receivedChunks.has(index)) {
-          var dataBytes = base64ToArrayBufferDecode(data);
-          if (calculateSimpleChecksum(dataBytes) === checksum) {
-            receivedChunks.set(index, data);
-            document.getElementById('receiveChunkCount').textContent =
-              receivedChunks.size + ' / ' + receiveTotalChunks;
-            document.getElementById('receiveProgressBar').style.width =
-              ((receivedChunks.size / receiveTotalChunks) * 100) + '%';
-            if (receivedChunks.size === receiveTotalChunks) onTransferComplete();
-          }
+        if (!isLast) {
+          receiveChunkLen = len;
+          receiveNeedConfirm = false;
+        } else if (total > 1 && !receivedChunks.has(index)) {
+          if (receiveChunkLen === null || len > receiveChunkLen) return;
+          receiveNeedConfirm = true;
         }
+        if (!receivedChunks.has(index)) receivedChunks.set(index, data);
+        document.getElementById('receiveChunkCount').textContent =
+          receivedChunks.size + ' / ' + receiveTotalChunks;
+        document.getElementById('receiveProgressBar').style.width =
+          ((receivedChunks.size / receiveTotalChunks) * 100) + '%';
+        if (receivedChunks.size === receiveTotalChunks && !receiveNeedConfirm) onTransferComplete();
       } else {
         stopScanner();
         animatedReceiveUI.hidden = true;
